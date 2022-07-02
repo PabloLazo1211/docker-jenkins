@@ -1,0 +1,39 @@
+node{
+	stage('Git Checkout'){
+		git branch: 'main', credentialsId: 'git-credentials', url: 'https://github.com/PabloLazo1211/docker-jenkins.git'
+	}
+
+	stage('Maven Clean Package') {
+		def mavenHome =  tool name: "Maven", type: "maven"
+		def mavenCMD = "${mavenHome}/bin/mvn"
+		sh "${mavenCMD} clean package"
+	}
+	
+	stage('Build Docker Image'){
+		sh "docker build -t kt7ler89/docker-jenkins:${env.BUILD_ID} ."
+	}
+
+	stage('Push Image to Docker Hub'){
+		withCredentials([string(credentialsId: 'docker-hub', variable: 'docker-hub')]) {
+			sh "docker login -u kt7ler89 -p ${docker-hub}"
+		}
+		sh "docker push kt7ler89/docker-jenkins:${env.BUILD_ID}"
+	}
+
+	stage('Push Image in ECR'){
+		ECRURL = '450280157612.dkr.ecr.us-east-1.amazonaws.com/kt7ler89/docker-jenkins'
+		ECRRED = 'ecr:us-east-1:aws credentials'
+		docker.withRegistry("${ECRURL}","${ECRRED}"){
+				docker.image("kt7ler89/docker-jenkins:${env.BUILD_ID}").push()
+		}
+		
+	}
+
+	stage('Run Container on AWS Server'){
+		def dockerRun = "docker run -d -p 8080:8080 --name myapp-${env.BUILD_ID} kt7ler89/docker-jenkins:${env.BUILD_ID}"
+		sshagent(['aws-instance']) {
+			sh "ssh -o StrictHostKeyChecking=no ubuntu@172.31.24.168 ${dockerRun}"
+		}
+	}
+
+}
